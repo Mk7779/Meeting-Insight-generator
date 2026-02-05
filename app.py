@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import os
 import tempfile
+import time
 
 # ---------------- CONFIG ---------------- #
 HF_API_KEY = os.getenv("HF_API_KEY")
@@ -20,30 +21,35 @@ def speech_to_text(file_path):
             headers=HEADERS,
             data=f
         )
+
     if response.status_code != 200:
         return ""
-    return response.json().get("text", "")
+
+    result = response.json()
+    return result.get("text", "").strip()
 
 
 def fetch_text_from_url(url):
     try:
-        response = requests.get(url, timeout=10)
-        if response.status_code == 200:
-            return response.text[:5000]
+        r = requests.get(url, timeout=10)
+        if r.status_code == 200:
+            return r.text[:4000].strip()
         return ""
     except:
         return ""
 
 
-def generate_insights(conversation_text):
+def generate_insights(conversation):
     prompt = f"""
+You are an AI assistant.
+
 Analyze the following English conversation and extract structured insights.
-The conversation may be a meeting, interview, discussion, debate, or casual talk.
+If a section is not applicable, clearly say "Not applicable".
 
 Conversation:
-{conversation_text}
+{conversation}
 
-Generate output in EXACTLY this format:
+Return output EXACTLY in this format:
 
 Summary:
 - ...
@@ -57,28 +63,34 @@ Decisions:
 Action Items:
 - ...
 
-Additional Insights (if any):
+Additional Insights:
 - ...
 """
 
     payload = {
         "inputs": prompt,
         "parameters": {
-            "max_new_tokens": 600,
-            "temperature": 0.3
+            "max_new_tokens": 700,
+            "temperature": 0.2
         }
     }
 
-    response = requests.post(
-        LLM_API_URL,
-        headers=HEADERS,
-        json=payload
-    )
+    # Retry logic (HF models sleep)
+    for _ in range(3):
+        response = requests.post(
+            LLM_API_URL,
+            headers=HEADERS,
+            json=payload
+        )
 
-    if response.status_code != 200:
-        return "Insight generation failed."
+        if response.status_code == 200:
+            data = response.json()
+            if isinstance(data, list) and "generated_text" in data[0]:
+                return data[0]["generated_text"]
 
-    return response.json()[0]["generated_text"]
+        time.sleep(5)
+
+    return "⚠️ AI model is currently busy. Please try again in a few seconds."
 
 # ---------------- STREAMLIT UI ---------------- #
 
@@ -88,7 +100,7 @@ st.title("🗣️ AI Conversation Insight Generator")
 
 st.write(
     "Analyze **any English conversation** from text, audio, video, or URL "
-    "and generate structured insights automatically."
+    "and instantly get structured insights."
 )
 
 input_type = st.selectbox(
@@ -97,7 +109,7 @@ input_type = st.selectbox(
         "Text Transcript",
         "Audio File",
         "Video File",
-        "Conversation / Recording URL"
+        "Conversation URL"
     ]
 )
 
@@ -112,70 +124,58 @@ if input_type == "Text Transcript":
 
 # -------- AUDIO -------- #
 elif input_type == "Audio File":
-    audio_file = st.file_uploader(
-        "Upload Audio (MP3 / WAV)",
-        type=["mp3", "wav"]
-    )
-
-    if audio_file:
+    audio = st.file_uploader("Upload Audio (MP3 / WAV)", type=["mp3", "wav"])
+    if audio:
         with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            tmp.write(audio_file.read())
-            file_path = tmp.name
+            tmp.write(audio.read())
+            path = tmp.name
 
         st.info("Converting audio to text...")
-        conversation_text = speech_to_text(file_path)
-        st.success("Audio processed successfully!")
+        conversation_text = speech_to_text(path)
 
-        st.text_area("Generated Transcript", conversation_text, height=200)
+        if conversation_text:
+            st.success("Audio converted successfully")
+            st.text_area("Generated Transcript", conversation_text, height=200)
+        else:
+            st.error("Audio transcription failed.")
 
 # -------- VIDEO -------- #
 elif input_type == "Video File":
-    video_file = st.file_uploader(
-        "Upload Video (MP4 / MKV / WEBM)",
-        type=["mp4", "mkv", "webm"]
-    )
-
-    if video_file:
+    video = st.file_uploader("Upload Video (MP4 / MKV / WEBM)", type=["mp4", "mkv", "webm"])
+    if video:
         with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            tmp.write(video_file.read())
-            file_path = tmp.name
+            tmp.write(video.read())
+            path = tmp.name
 
         st.info("Extracting conversation from video...")
-        conversation_text = speech_to_text(file_path)
-        st.success("Video processed successfully!")
+        conversation_text = speech_to_text(path)
 
-        st.text_area("Generated Transcript", conversation_text, height=200)
+        if conversation_text:
+            st.success("Video processed successfully")
+            st.text_area("Generated Transcript", conversation_text, height=200)
+        else:
+            st.error("Video transcription failed.")
 
 # -------- URL -------- #
-elif input_type == "Conversation / Recording URL":
-    url = st.text_input("Paste Conversation or Transcript URL")
-
+elif input_type == "Conversation URL":
+    url = st.text_input("Paste conversation / transcript URL")
     if url:
-        st.info("Fetching content from URL...")
+        st.info("Fetching content...")
         conversation_text = fetch_text_from_url(url)
 
         if conversation_text:
-            st.success("Content fetched successfully!")
-            st.text_area("Fetched Content", conversation_text, height=200)
+            st.success("Content fetched successfully")
+            st.text_area("Fetched Text", conversation_text, height=200)
         else:
-            st.warning("Unable to fetch content from URL.")
+            st.error("Could not fetch content from URL.")
 
 # -------- GENERATE -------- #
 if st.button("Generate Conversation Insights"):
-    if conversation_text.strip() == "":
+    if not conversation_text.strip():
         st.error("Please provide valid conversation input.")
     else:
         with st.spinner("Analyzing conversation..."):
             insights = generate_insights(conversation_text)
 
-        st.success("Insights Generated!")
-
         st.subheader("📌 Conversation Insights")
         st.markdown(insights)
-
-        st.download_button(
-            "📥 Download Insights",
-            insights,
-            file_name="conversation_insights.txt",
-            mime="text/plain"
-        )
