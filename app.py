@@ -14,42 +14,17 @@ HEADERS = {"Authorization": f"Bearer {HF_API_KEY}"}
 
 # ---------------- FUNCTIONS ---------------- #
 
-def speech_to_text(file_path):
-    with open(file_path, "rb") as f:
-        response = requests.post(
-            WHISPER_API_URL,
-            headers=HEADERS,
-            data=f
-        )
-
-    if response.status_code != 200:
-        return ""
-
-    result = response.json()
-    return result.get("text", "").strip()
-
-
-def fetch_text_from_url(url):
-    try:
-        r = requests.get(url, timeout=10)
-        if r.status_code == 200:
-            return r.text[:4000].strip()
-        return ""
-    except:
-        return ""
-
-
 def generate_insights(conversation):
     prompt = f"""
-You are an AI assistant.
+You are an expert analyst.
 
 Analyze the following English conversation and extract structured insights.
-If a section is not applicable, clearly say "Not applicable".
+If something is not present, write "Not applicable".
 
 Conversation:
 {conversation}
 
-Return output EXACTLY in this format:
+Format exactly like this:
 
 Summary:
 - ...
@@ -70,13 +45,12 @@ Additional Insights:
     payload = {
         "inputs": prompt,
         "parameters": {
-            "max_new_tokens": 700,
+            "max_new_tokens": 500,
             "temperature": 0.2
         }
     }
 
-    # Retry logic (HF models sleep)
-    for _ in range(3):
+    for attempt in range(5):
         response = requests.post(
             LLM_API_URL,
             headers=HEADERS,
@@ -85,12 +59,28 @@ Additional Insights:
 
         if response.status_code == 200:
             data = response.json()
-            if isinstance(data, list) and "generated_text" in data[0]:
+            if isinstance(data, list):
                 return data[0]["generated_text"]
 
-        time.sleep(5)
+        time.sleep(3)
 
-    return "⚠️ AI model is currently busy. Please try again in a few seconds."
+    return """
+Summary:
+- Model is temporarily busy. Please click Generate again.
+
+Key Topics Discussed:
+- Not applicable
+
+Decisions:
+- Not applicable
+
+Action Items:
+- Not applicable
+
+Additional Insights:
+-Free-tier model loading delay.
+"""
+
 
 # ---------------- STREAMLIT UI ---------------- #
 
