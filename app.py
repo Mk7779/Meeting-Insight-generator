@@ -20,10 +20,8 @@ def speech_to_text(file_path):
             headers=HEADERS,
             data=f
         )
-
     if response.status_code != 200:
         return ""
-
     return response.json().get("text", "")
 
 
@@ -31,20 +29,21 @@ def fetch_text_from_url(url):
     try:
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
-            return response.text[:5000]  # limit length
+            return response.text[:5000]
         return ""
     except:
         return ""
 
 
-def generate_insights(transcript):
+def generate_insights(conversation_text):
     prompt = f"""
-Analyze the following meeting content and generate structured insights.
+Analyze the following English conversation and extract structured insights.
+The conversation may be a meeting, interview, discussion, debate, or casual talk.
 
-Meeting Content:
-{transcript}
+Conversation:
+{conversation_text}
 
-Provide output in this format ONLY:
+Generate output in EXACTLY this format:
 
 Summary:
 - ...
@@ -58,13 +57,16 @@ Decisions:
 Action Items:
 - ...
 
-Additional Notes (if any):
+Additional Insights (if any):
 - ...
 """
 
     payload = {
         "inputs": prompt,
-        "parameters": {"max_new_tokens": 600}
+        "parameters": {
+            "max_new_tokens": 600,
+            "temperature": 0.3
+        }
     }
 
     response = requests.post(
@@ -74,19 +76,19 @@ Additional Notes (if any):
     )
 
     if response.status_code != 200:
-        return "LLM failed to generate insights."
+        return "Insight generation failed."
 
     return response.json()[0]["generated_text"]
 
 # ---------------- STREAMLIT UI ---------------- #
 
-st.set_page_config(page_title="Meeting Insight Generator", layout="wide")
+st.set_page_config(page_title="Conversation Insight Generator", layout="wide")
 
-st.title("📊 AI Meeting Insight Generator")
+st.title("🗣️ AI Conversation Insight Generator")
 
 st.write(
-    "Upload a meeting **audio**, **video**, paste a **transcript**, "
-    "or provide a **meeting recording URL** to generate insights."
+    "Analyze **any English conversation** from text, audio, video, or URL "
+    "and generate structured insights automatically."
 )
 
 input_type = st.selectbox(
@@ -95,23 +97,23 @@ input_type = st.selectbox(
         "Text Transcript",
         "Audio File",
         "Video File",
-        "Meeting Recording URL"
+        "Conversation / Recording URL"
     ]
 )
 
-transcript_text = ""
+conversation_text = ""
 
-# -------- TEXT TRANSCRIPT -------- #
+# -------- TEXT -------- #
 if input_type == "Text Transcript":
-    transcript_text = st.text_area(
-        "Paste Meeting Transcript",
+    conversation_text = st.text_area(
+        "Paste English Conversation",
         height=250
     )
 
-# -------- AUDIO FILE -------- #
+# -------- AUDIO -------- #
 elif input_type == "Audio File":
     audio_file = st.file_uploader(
-        "Upload Audio File (MP3 / WAV)",
+        "Upload Audio (MP3 / WAV)",
         type=["mp3", "wav"]
     )
 
@@ -121,15 +123,15 @@ elif input_type == "Audio File":
             file_path = tmp.name
 
         st.info("Converting audio to text...")
-        transcript_text = speech_to_text(file_path)
-        st.success("Audio converted successfully!")
+        conversation_text = speech_to_text(file_path)
+        st.success("Audio processed successfully!")
 
-        st.text_area("Generated Transcript", transcript_text, height=200)
+        st.text_area("Generated Transcript", conversation_text, height=200)
 
-# -------- VIDEO FILE -------- #
+# -------- VIDEO -------- #
 elif input_type == "Video File":
     video_file = st.file_uploader(
-        "Upload Video File (MP4 / MKV / WEBM)",
+        "Upload Video (MP4 / MKV / WEBM)",
         type=["mp4", "mkv", "webm"]
     )
 
@@ -138,42 +140,42 @@ elif input_type == "Video File":
             tmp.write(video_file.read())
             file_path = tmp.name
 
-        st.info("Extracting speech from video...")
-        transcript_text = speech_to_text(file_path)
+        st.info("Extracting conversation from video...")
+        conversation_text = speech_to_text(file_path)
         st.success("Video processed successfully!")
 
-        st.text_area("Generated Transcript", transcript_text, height=200)
+        st.text_area("Generated Transcript", conversation_text, height=200)
 
-# -------- MEETING URL -------- #
-elif input_type == "Meeting Recording URL":
-    meeting_url = st.text_input("Paste Meeting Recording / Transcript URL")
+# -------- URL -------- #
+elif input_type == "Conversation / Recording URL":
+    url = st.text_input("Paste Conversation or Transcript URL")
 
-    if meeting_url:
-        st.info("Fetching meeting content...")
-        transcript_text = fetch_text_from_url(meeting_url)
+    if url:
+        st.info("Fetching content from URL...")
+        conversation_text = fetch_text_from_url(url)
 
-        if transcript_text:
+        if conversation_text:
             st.success("Content fetched successfully!")
-            st.text_area("Fetched Content", transcript_text, height=200)
+            st.text_area("Fetched Content", conversation_text, height=200)
         else:
-            st.warning("Could not fetch content from URL.")
+            st.warning("Unable to fetch content from URL.")
 
-# -------- PROCESS -------- #
-if st.button("Generate Meeting Insights"):
-    if transcript_text.strip() == "":
-        st.error("Please provide valid meeting input.")
+# -------- GENERATE -------- #
+if st.button("Generate Conversation Insights"):
+    if conversation_text.strip() == "":
+        st.error("Please provide valid conversation input.")
     else:
-        with st.spinner("Analyzing meeting..."):
-            insights = generate_insights(transcript_text)
+        with st.spinner("Analyzing conversation..."):
+            insights = generate_insights(conversation_text)
 
         st.success("Insights Generated!")
 
-        st.subheader("📌 Meeting Insights")
+        st.subheader("📌 Conversation Insights")
         st.markdown(insights)
 
         st.download_button(
-            "📥 Download Summary Report",
+            "📥 Download Insights",
             insights,
-            file_name="meeting_insights.txt",
+            file_name="conversation_insights.txt",
             mime="text/plain"
         )
